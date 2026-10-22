@@ -1,21 +1,20 @@
 using System.Collections.Generic;
 using Renegade.Ui;
 
-namespace GameTemplate.Game;
+namespace Solitaire.Game;
 
-/// <summary>
-/// The guided tour behind the Demo button: a few short pages, each with a looping clip recorded
-/// from the game itself (see Main.PlayClip and addons/renegade_core/tools/Record-Clips.ps1).
-/// Text only, no voice. A page without a clip (Video = null) just shows its text.
-/// </summary>
+/// <summary>The guided tour behind the Demo button: a few short pages.</summary>
 public static class Tutorial
 {
 	public static readonly IReadOnlyList<TutorialPage> Pages = new[]
 	{
-		new TutorialPage("Knock five times",
-			"Tap the board to knock on it. Five knocks finish a game, and the board catches fire. Replace this page with the real game's rules.",
-			"res://tutorial/knock.ogv"),
-		new TutorialPage("Tips",
-			"Drag sideways to spin the board, or freeze it in Settings."),
+		new TutorialPage("The goal",
+			"Get all 52 cards up onto the four foundations, top right: each one a suit, from the ace up to the king."),
+		new TutorialPage("The piles",
+			"On the seven piles, build down in alternating colours: a red six on a black seven. Tap a card to send it, and any cards on it, to the best place it can go. Only a king fills an empty pile."),
+		new TutorialPage("The stock",
+			"Tap the stock, top left, to turn cards onto the waste; tap the waste's top card to play it. When the stock runs out, tap its place to turn the waste back over. Settings › Draw chooses one card or three at a time."),
+		new TutorialPage("Help",
+			"Undo is free and goes back as far as you like. Hint shows a good move. Safe cards go up by themselves, and once every card is face up the game finishes itself. Settings › Deals can give you only winnable deals."),
 	};
 }
