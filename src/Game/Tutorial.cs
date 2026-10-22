@@ -11,7 +11,7 @@ public static class Tutorial
 		new TutorialPage("The goal",
 			"Get all 52 cards up onto the four foundations, top right: each one a suit, from the ace up to the king."),
 		new TutorialPage("The piles",
-			"On the seven piles, build down in alternating colours: a red six on a black seven. Tap a card to send it, and any cards on it, to the best place it can go. Only a king fills an empty pile."),
+			"On the seven piles, build down in alternating colours: a red six on a black seven. Drag a card, and any cards on it, where you want it (or choose Tap to send in Settings, and a tap sends it to the best place). Only a king fills an empty pile."),
 		new TutorialPage("The stock",
 			"Tap the stock, top left, to turn cards onto the waste; tap the waste's top card to play it. When the stock runs out, tap its place to turn the waste back over. Settings › Draw chooses one card or three at a time."),
 		new TutorialPage("Help",

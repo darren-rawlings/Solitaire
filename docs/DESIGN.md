@@ -36,3 +36,8 @@ The score line shows the moves and "Won X of Y" (a deal counts as played once yo
 
 ## Scope for version 1
 Klondike with the above. Later: drag to move, Vegas scoring, a timer, daily deals, tutorial clips.
+
+## Changes from Darren's notes (2026-10-22)
+- Settings › Moving cards: drag and drop (the default; a tap then only moves an ace up) or tap to send.
+- Winning sets off the Windows-style cascade after the fire: the cards bounce out of the foundations leaving trails.
+- One soft sound per move (no mini-shuffle when drawing); every move is in the log for the whole deal.

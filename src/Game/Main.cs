@@ -17,7 +17,7 @@ namespace Solitaire.Game;
 /// </summary>
 public partial class Main : CardGame
 {
-	private const float Column = 0.76f, TopZ = -2.7f, TableauZ = -1.5f, Bottom = 3.0f, DownStep = 0.13f, UpStep = 0.31f, FanStep = 0.2f;
+	private const float Column = 0.76f, TopZ = -1.85f, TableauZ = -0.8f, Bottom = 3.25f, DownStep = 0.13f, UpStep = 0.31f, FanStep = 0.2f;
 
 	private readonly Dictionary<Card, Card3D> _nodes = new();
 	private Klondike? _game;
@@ -25,12 +25,13 @@ public partial class Main : CardGame
 	private Button _hint = null!;
 	private Node3D? _slots;
 	private bool _counted;
+	private bool _dragCheck;
 
 	/// <summary>The game's undo depth before each of your actions, so Undo takes back an action with the safe cards that followed it.</summary>
 	private readonly Stack<int> _actions = new();
 
 	protected override string Title => "Solitaire";
-	protected override string Hint => "Tap a card to move it";
+	protected override string Hint => DragMode ? "Drag a card to move it" : "Tap a card to move it";
 	protected override bool HasLevels => false;
 	protected override bool HoldsCards => false;
 	protected override bool Solitaire => true;
@@ -38,10 +39,30 @@ public partial class Main : CardGame
 	protected override IReadOnlyList<TutorialPage> TutorialPages => Tutorial.Pages;
 	protected override bool InProgress => _game is { IsWon: false, Moves: > 0 };
 
+	/// <summary>The log keeps the whole of the current deal.</summary>
+	protected override int TalkRounds => 1;
+
 	private int DrawCount => Settings.Extra.TryGetValue("draw", out var draw) && draw == "3" ? 3 : 1;
+
+	/// <summary>Cards are dragged where you want them (the default); otherwise a tap sends a card to the best place.</summary>
+	private bool DragMode => !(Settings.Extra.TryGetValue("move", out var move) && move == "tap");
+
+	/// <summary>`--winnable` deals only winnable games (for checks of the win).</summary>
+	protected override void DevArg(string name, string value)
+	{
+		if (name == "--winnable")
+			Settings.Extra["winnable"] = "on";
+		if (name == "--dragcheck")
+			_dragCheck = true;
+	}
 
 	protected override void AddSettings()
 	{
+		Hud.AddChoice("Moving cards", new[] { "Drag and drop", "Tap to send" }, DragMode ? 0 : 1, choice =>
+		{
+			Settings.Extra["move"] = choice == 1 ? "tap" : "drag";
+			Settings.Save();
+		});
 		Hud.AddChoice("Draw", new[] { "One card", "Three cards" }, DrawCount == 3 ? 1 : 0, choice =>
 		{
 			Settings.Extra["draw"] = choice == 1 ? "3" : "1";
@@ -125,13 +146,17 @@ public partial class Main : CardGame
 	{
 		Tween? last = null;
 		float delay = 0;
+		bool sounded = false;
 		foreach (var (card, at) in Places())
 		{
 			var node = _nodes[card];
 			if (node.GlobalTransform.IsEqualApprox(at))
 				continue;
 			bool turning = node.GlobalTransform.Basis.Z.Dot(at.Basis.Z) < 0;
-			last = CardMotion.Fly(node, at, seconds, lift: turning ? 0.25f : 0.14f, delay: delay, landed: () => Sounds.PlaySlap(at.Origin));
+			// One soft sound per move, however many cards it carries.
+			System.Action? landed = sounded ? null : () => Sounds.PlayFlick(at.Origin);
+			sounded = true;
+			last = CardMotion.Fly(node, at, seconds, lift: turning ? 0.25f : 0.14f, delay: delay, landed: landed);
 			delay += 0.03f;
 		}
 		return last;
@@ -223,6 +248,8 @@ public partial class Main : CardGame
 			return;
 		Hud.SetRestartVisible(true);
 		_undo.Visible = _hint.Visible = !Demo;
+		if (_dragCheck)
+			Run(DragCheck());
 		await AfterMove();
 	}
 
@@ -265,6 +292,8 @@ public partial class Main : CardGame
 			_undo.Visible = _hint.Visible = false;
 			var tops = Enumerable.Range(0, 4).SelectMany(f => game.Foundation(f).Skip(9)).Select(c => _nodes[c]);
 			Finish($"You win, in {game.Moves} moves!", 0, tops, (FoundationAt(0) + FoundationAt(3)) / 2);
+			News($"You won in {game.Moves} moves.");
+			Run(Cascade(round));
 			return;
 		}
 		if (game.Stuck)
@@ -291,6 +320,23 @@ public partial class Main : CardGame
 		Busy = false;
 	}
 
+	/// <summary>
+	/// The old Windows victory: once the foundations have caught fire, the cards leave them one by
+	/// one, kings first, and bounce down the table leaving trails behind them.
+	/// </summary>
+	private async Task Cascade(int round)
+	{
+		await Pause(1.2f);
+		if (round != Round || _game is not { IsWon: true } game)
+			return;
+		var order = new List<Card3D>();
+		for (int i = 12; i >= 0; i--)
+			for (int f = 0; f < 4; f++)
+				order.Add(_nodes[game.Foundation(f)[i]]);
+		float half = LayoutWidth / 2 + 0.3f;
+		WinCascade.Start(this, order, Looks, new Rect2(-half, TopZ - 0.6f, half * 2, 3.9f - (TopZ - 0.6f)), CardTable.FeltY + 0.06f, gap: 0.16f);
+	}
+
 	private async Task DemoStep()
 	{
 		var game = _game!;
@@ -314,8 +360,23 @@ public partial class Main : CardGame
 			Settings.Save();
 		}
 		_actions.Push(game.History);
-		game.Make(move);
+		var moving = game.Cards(move);
+		var turned = game.Make(move);
+		News(Moved(moving, move) + (turned is { } t ? $"; {t} turns over" : "") + ".");
 		await Show(null);
+	}
+
+	/// <summary>A move as the log says it: "7♠ onto 8♥", "A♥ up", "K♣ to the empty pile".</summary>
+	private string Moved(List<Card> cards, Move move)
+	{
+		string what = cards.Count == 1 ? cards[0].ToString() : $"{cards[0]} and {cards.Count - 1} more";
+		var game = _game!;
+		return move.To.Kind switch
+		{
+			PileKind.Foundation => $"{what} up",
+			PileKind.Tableau when game.Tableau(move.To.Index).Count == cards.Count => $"{what} to the empty pile",
+			_ => $"{what} onto {game.Tableau(move.To.Index)[^(cards.Count + 1)].Card}",
+		};
 	}
 
 	/// <summary>Lays the cards out as the game now stands, then carries on.</summary>
@@ -325,7 +386,6 @@ public partial class Main : CardGame
 		Busy = true;
 		if (status != null)
 			Hud.SetStatus(status, Muted);
-		Sounds.PlaySwish(Table.Centre);
 		await Await(Layout());
 		if (round == Round)
 			await AfterMove(auto);
@@ -402,6 +462,125 @@ public partial class Main : CardGame
 	private static bool Near(Vector3 point, Vector3 at) =>
 		Mathf.Abs(point.X - at.X) <= Card3D.Width / 2 + 0.04f && Mathf.Abs(point.Z - at.Z) <= Card3D.Height / 2 + 0.04f;
 
+	/// <summary>
+	/// Developer check (--dragcheck): drags a card that can move onto its pile with real mouse
+	/// events (press, a few moves, release) and logs whether the game made the move.
+	/// </summary>
+	private async Task DragCheck()
+	{
+		var game = _game!;
+		await Pause(2f);
+		for (int draws = 0; draws < 30; draws++)
+		{
+			var move = game.UsefulMoves().FirstOrDefault(m => m.To.Kind == PileKind.Tableau && game.Tableau(m.To.Index).Count > 0);
+			if (move.Count > 0)
+			{
+				var from = _nodes[game.Cards(move)[0]].GlobalPosition;
+				var onto = _nodes[game.Tableau(move.To.Index)[^1].Card].GlobalPosition + new Vector3(0, 0, UpStep);
+				// Events arrive in window pixels; the camera works in the (stretched) viewport's.
+				var screen = GetViewport().GetScreenTransform();
+				var a = screen * Table.Camera.UnprojectPosition(from);
+				var b = screen * Table.Camera.UnprojectPosition(onto);
+				int before = game.Moves;
+				void Send(InputEvent e) => Input.ParseInputEvent(e);
+				Send(new InputEventMouseButton { ButtonIndex = MouseButton.Left, Pressed = true, Position = a, GlobalPosition = a });
+				for (int i = 1; i <= 8; i++)
+				{
+					await Pause(0.05f);
+					var p = a.Lerp(b, i / 8f);
+					Send(new InputEventMouseMotion { Position = p, GlobalPosition = p, ButtonMask = MouseButtonMask.Left });
+				}
+				Send(new InputEventMouseButton { ButtonIndex = MouseButton.Left, Pressed = false, Position = b, GlobalPosition = b });
+				await Pause(1.5f);
+				Renegade.Dev.DevLog.Write($"dragcheck: {move} {(game.Moves > before ? "made" : "NOT made")}");
+				return;
+			}
+			game.Draw();
+			Layout(0.05f);
+			await Pause(0.2f);
+		}
+		Renegade.Dev.DevLog.Write("dragcheck: no move found");
+	}
+
+	// ------------------------------------------------------------------ Dragging
+
+	/// <summary>The cards being dragged (the first is the one picked up), where from, and where the finger holds them.</summary>
+	private (PileRef From, int Count, List<Card3D> Nodes, Vector3 Grip)? _drag;
+
+	private const float DragHeight = 0.35f;
+
+	protected override bool BeginDrag(Vector3 origin, Vector3 direction, Vector2 screen)
+	{
+		if (!DragMode || _game is not { IsWon: false } game)
+			return false;
+		var node = HitCard(_nodes.Values, origin, direction);
+		if (node == null || Locate(node.Card) is not var (pile, index))
+			return false;
+		int count;
+		switch (pile.Kind)
+		{
+			case PileKind.Waste when index == game.Waste.Count - 1:
+			case PileKind.Foundation when index == game.Foundation(pile.Index).Count - 1:
+				count = 1;
+				break;
+			case PileKind.Tableau when game.Tableau(pile.Index)[index].Up:
+				count = game.Tableau(pile.Index).Count - index;
+				break;
+			default:
+				return false;
+		}
+		Hud.HideHint();
+		var nodes = game.Cards(new Move(pile, pile, count)).Select(c => _nodes[c]).ToList();
+		var hold = OnPlane(origin, direction, CardTable.FeltY + DragHeight);
+		_drag = (pile, count, nodes, nodes[0].GlobalPosition - hold);
+		DragTo(origin, direction);
+		return true;
+	}
+
+	protected override void DragTo(Vector3 origin, Vector3 direction)
+	{
+		if (_drag is not { } drag)
+			return;
+		var at = OnPlane(origin, direction, CardTable.FeltY + DragHeight) + drag.Grip with { Y = 0 };
+		for (int i = 0; i < drag.Nodes.Count; i++)
+			drag.Nodes[i].GlobalPosition = at + new Vector3(0, 0.004f * i, UpStep * i);
+	}
+
+	protected override void EndDrag(Vector3 origin, Vector3 direction, bool moved)
+	{
+		if (_drag is not { } drag || _game is not { } game)
+			return;
+		_drag = null;
+		if (!moved)
+		{
+			// Just a tap: only an ace goes up by itself.
+			Layout(0.12f);
+			if (drag.Count == 1 && drag.Nodes[0].Card.Rank == Card.Ace && game.BestMove(drag.From, 1) is { } up)
+				Run(Do(up));
+			return;
+		}
+		var point = drag.Nodes[0].GlobalPosition;
+		Renegade.Dev.DevLog.Write($"drop at {point} over {Target(point)?.ToString() ?? "nothing"}");
+		if (Target(point) is { } to && new Move(drag.From, to, drag.Count) is var move && game.IsLegal(move))
+		{
+			Run(Do(move));
+			return;
+		}
+		Hud.SetStatus($"The {Describe(drag.Nodes[0].Card)} can't go there.", Muted);
+		Layout(0.2f);
+	}
+
+	/// <summary>The pile a dragged card is over: a foundation along the top, or one of the seven piles.</summary>
+	private static PileRef? Target(Vector3 at)
+	{
+		int column = Mathf.RoundToInt(at.X / Column + 3);
+		if (column is < 0 or > 6 || Mathf.Abs(at.X - X(column)) > Column * 0.6f)
+			return null;
+		if (Mathf.Abs(at.Z - TopZ) < Card3D.Height * 0.7f)
+			return column >= 3 ? PileRef.Foundation(column - 3) : null;
+		return at.Z > TableauZ - Card3D.Height * 0.7f ? PileRef.Tableau(column) : null;
+	}
+
 	protected override void Tapped(Vector3 origin, Vector3 direction, Vector2 screen)
 	{
 		if (_game is not { IsWon: false } game)
@@ -409,6 +588,9 @@ public partial class Main : CardGame
 		Hud.HideHint();
 		var node = HitCard(_nodes.Values, origin, direction);
 		var spot = node != null ? Locate(node.Card) : null;
+		// With drag and drop, a tap only turns the stock.
+		if (DragMode && spot is { Pile.Kind: not PileKind.Stock })
+			return;
 		if (spot == null)
 		{
 			// The empty stock turns the waste back over.
