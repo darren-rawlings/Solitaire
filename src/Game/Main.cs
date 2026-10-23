@@ -78,10 +78,10 @@ public partial class Main : CardGame
 				Run(AfterMove());
 		});
 
-		_undo = Hud.AddButton("Undo", false, Control.LayoutPreset.BottomLeft, 20, 180, -186, -130, 22);
-		_undo.Pressed += () =>
+		// Undo and Hint each cost a rewarded ad (free once ads are removed).
+		_undo = AddAdButton("Undo", Control.LayoutPreset.BottomLeft, 20, 220, -186, -130, () =>
 		{
-			if (!Busy && _game is { CanUndo: true } game)
+			if (_game is { CanUndo: true } game)
 			{
 				int back = _actions.Count > 0 ? _actions.Pop() : game.History - 1;
 				while (game.History > back)
@@ -89,13 +89,8 @@ public partial class Main : CardGame
 				Hud.SetNewGameVisible(false);
 				Run(Show("Undone.", auto: false));
 			}
-		};
-		_hint = Hud.AddButton("Hint", false, Control.LayoutPreset.BottomRight, -180, -20, -186, -130, 22);
-		_hint.Pressed += () =>
-		{
-			if (!Busy && _game is { IsWon: false })
-				Run(ShowHint());
-		};
+		}, can: () => _game is { CanUndo: true });
+		_hint = AddAdButton("Hint", Control.LayoutPreset.BottomRight, -220, -20, -186, -130, () => Run(ShowHint()), can: () => _game is { IsWon: false });
 		_undo.Visible = _hint.Visible = false;
 	}
 
