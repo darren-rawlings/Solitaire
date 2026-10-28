@@ -203,6 +203,7 @@ public partial class Main : CardGame
 
 	protected override async Task NewRound()
 	{
+		ClipMoment("deal", 10);
 		int round = Round;
 		_nodes.Clear();
 		_game = null;
@@ -346,6 +347,7 @@ public partial class Main : CardGame
 	/// <summary>Makes a move on the table, and shows it.</summary>
 	private async Task Do(Move move)
 	{
+		ClipMoment("move", 8);
 		var game = _game!;
 		Busy = true;
 		if (!_counted && !Demo)
